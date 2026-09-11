@@ -7,6 +7,8 @@ export interface TelemetryFrame {
   bay_id: string;
   risk_score: number;
   status: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "NOMINAL";
+  video_id?: string;
+  current_time?: number;
 }
 
 export const useRealtimeTelemetry = (wsUrl?: string) => {

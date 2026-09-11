@@ -1,5 +1,6 @@
-import React from 'react';
-import { Camera, Maximize2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Camera, Maximize2, Loader2 } from 'lucide-react';
+import { getCameras, getLoadingBays, type Camera as ApiCamera, type LoadingBay } from '../api/facilities';
 
 export interface CameraFeedItem {
   id: string;
@@ -110,28 +111,78 @@ export const MultiCameraGrid: React.FC<MultiCameraGridProps> = ({
   onSelectFeed,
   activeFeedFilename,
 }) => {
+  const [cameraFeeds, setCameraFeeds] = useState<CameraFeedItem[]>(ALL_CAMERA_FEEDS);
+  const [loading, setLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    setLoading(true);
+    Promise.all([
+      getCameras().catch(() => []),
+      getLoadingBays().catch(() => [])
+    ]).then(([cams, bays]) => {
+      if (!isMounted) return;
+      if (cams && cams.length > 0) {
+        const baysMap = new Map(bays.map((b: LoadingBay) => [b.id, b]));
+        const dynamicFeeds: CameraFeedItem[] = cams.map((cam: ApiCamera, idx: number) => {
+          const matchedBay = cam.loading_bay_id ? baysMap.get(cam.loading_bay_id) : undefined;
+          const bayName = matchedBay?.name || `Loading Bay 0${(idx % 4) + 1}`;
+          const fallbackScenario = ALL_CAMERA_FEEDS[idx % ALL_CAMERA_FEEDS.length];
+
+          const riskLevel = (
+            matchedBay?.risk_level === 'Critical' ? 'CRITICAL' :
+            matchedBay?.risk_level === 'High' ? 'HIGH' :
+            matchedBay?.risk_level === 'Medium' ? 'MEDIUM' : 'LOW'
+          ) as CameraFeedItem['riskLevel'];
+          const riskScore = matchedBay?.active_events_count ? Math.min(95, 45 + matchedBay.active_events_count * 15) : 15;
+
+          return {
+            id: cam.id || `cam-0${idx + 1}`,
+            cameraId: cam.camera_code || `CAM-0${idx + 1}`,
+            name: cam.name || `Dock Camera 0${idx + 1}`,
+            bay: bayName,
+            videoUrl: cam.stream_url || fallbackScenario.videoUrl,
+            filename: fallbackScenario.filename,
+            riskLevel: matchedBay?.risk_level ? riskLevel : fallbackScenario.riskLevel,
+            riskScore: matchedBay?.risk_level ? riskScore : fallbackScenario.riskScore,
+            primaryHazard: matchedBay?.latest_incident_behaviour || fallbackScenario.primaryHazard,
+            fps: 30,
+          };
+        });
+        setCameraFeeds(dynamicFeeds);
+      }
+    }).finally(() => {
+      if (isMounted) setLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <Camera className="w-5 h-5 text-blue-600" />
-            Synchronized 7-Camera Live Warehouse Optical Wall
+            Synchronized {cameraFeeds.length}-Camera Live Warehouse Optical Wall
+            {loading && <Loader2 className="w-4 h-4 animate-spin text-blue-600 inline" />}
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time multi-angle surveillance across all Godrej facility zones with automatic hazard highlighting.
+            Real-time multi-angle surveillance across all facility zones with dynamic hazard highlighting.
           </p>
         </div>
 
         <span className="text-xs font-mono font-semibold px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          7 Optical Streams Active
+          {cameraFeeds.length} Optical Streams Active
         </span>
       </div>
 
-      {/* Grid of 7 Cameras */}
+      {/* Grid of Cameras */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {ALL_CAMERA_FEEDS.map((feed) => {
+        {cameraFeeds.map((feed) => {
           const isActive = activeFeedFilename === feed.filename;
           const isCrit = feed.riskLevel === 'CRITICAL';
           const isHigh = feed.riskLevel === 'HIGH';

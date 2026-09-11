@@ -3,8 +3,11 @@ import { AssistantChat } from '../components/AssistantChat';
 import { Bot } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { DataProvenanceOverlay } from '../components/DataProvenanceOverlay';
+import { useAuth } from '../context/AuthContext';
 
 export const Assistant: React.FC = () => {
+  const { user } = useAuth();
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -22,7 +25,7 @@ export const Assistant: React.FC = () => {
 
       <DataProvenanceOverlay
         endpoint="/api/assistant/chat"
-        facilityScope="FAC-001"
+        facilityScope={user?.facility_id || 'FAC-001'}
         entity="RAG Vector Engine + SQLite DB"
         filter="Conversational Grounded Query"
       >

@@ -34,6 +34,9 @@ export interface VideoTelemetryPayload {
   timelineData: FrameTelemetryPoint[];
   isCustomUpload?: boolean;
   fileSizeBytes?: number;
+  what_happened?: string;
+  why_it_matters?: string;
+  recommended_action?: string;
 }
 
 export interface ModelStatus {

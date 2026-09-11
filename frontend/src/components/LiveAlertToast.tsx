@@ -8,6 +8,9 @@ import type { Event } from '../types/event';
 export interface AlertNotification {
   id: string;
   eventId?: string;
+  videoId?: string;
+  videoUrl?: string;
+  cameraId?: string;
   title: string;
   bay: string;
   riskLevel: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -52,6 +55,7 @@ export const LiveAlertToast: React.FC = () => {
       const newAlert: AlertNotification = {
         id: `alert-${now}-${Math.random().toString(36).substr(2, 4)}`,
         eventId: `EVT-${Math.floor(now / 1000)}`,
+        videoId: currentFrame.video_id,
         title: 'POTENTIAL SAFETY INCIDENT',
         bay: currentFrame.bay_id || 'Loading Bay 01',
         riskLevel: computedLevel,
@@ -60,7 +64,7 @@ export const LiveAlertToast: React.FC = () => {
         behaviour: computedLevel === 'CRITICAL' ? 'Product Drop / Impact Anomaly' : computedLevel === 'HIGH' ? 'Unsafe Material Translation' : 'Operational Handling Deviation',
         message: `Kinematic anomaly flagged in ${currentFrame.bay_id || 'Dock Bay'}. Dynamic telemetry recorded R(t) = ${riskScore.toFixed(1)}%.`,
         timestamp: new Date().toLocaleTimeString(),
-        timestampSeconds: 6.0,
+        timestampSeconds: currentFrame.current_time || 6.0,
       };
 
       setAlerts((prev) => [newAlert, ...prev.slice(0, 1)]);
@@ -86,14 +90,16 @@ export const LiveAlertToast: React.FC = () => {
   const handleReviewIncident = (alert: AlertNotification) => {
     handleDismiss(alert.id);
     
-    // Construct synthetic/normalized Event object for modal review
+    // Construct dynamic normalized Event object for modal review
+    const targetVideo = alert.videoId || currentFrame?.video_id || 'stream_capture.mp4';
+    const targetSec = alert.timestampSeconds || currentFrame?.current_time || 0;
     const synthEvent: Event = {
       event_id: alert.eventId || `EVT-${Date.now()}`,
-      video_id: 'Rolling and dropping carton.mp4',
-      timestamp: alert.timestampSeconds || 6.0,
-      timestamp_seconds: alert.timestampSeconds || 6.0,
-      bay_id: alert.bay,
-      camera_id: 'CAM-01',
+      video_id: targetVideo,
+      timestamp: targetSec,
+      timestamp_seconds: targetSec,
+      bay_id: alert.bay || currentFrame?.bay_id || 'Loading Bay 01',
+      camera_id: alert.cameraId || 'CAM-01',
       object_id: 42,
       behaviour: alert.behaviour || alert.title || 'Product Drop Detected',
       risk_score: alert.riskScore,
@@ -103,7 +109,7 @@ export const LiveAlertToast: React.FC = () => {
       reason: 'Freefall impact acceleration spike detected exceeding packaging tolerance.',
       recommended_action: 'Halt conveyor sequence, inspect package corners, and coach dock operators on safe handoff.',
       status: 'PENDING_REVIEW',
-      video_reference: '/videos/Rolling%20and%20dropping%20carton.mp4#t=6.0',
+      video_reference: alert.videoUrl || (targetVideo ? `/videos/${encodeURIComponent(targetVideo)}#t=${targetSec.toFixed(1)}` : undefined),
     };
 
     setReviewModalEvent(synthEvent);

@@ -102,7 +102,21 @@ async def chat(
         if request.camera_id:
             events_query = events_query.filter(models.Event.camera_id == request.camera_id)
         if request.bay_id:
-            events_query = events_query.filter(models.Event.bay_id == request.bay_id)
+            bay_digits = re.findall(r"\d+", request.bay_id)
+            if bay_digits:
+                d = bay_digits[0]
+                d_pad = f"{int(d):02d}"
+                events_query = events_query.filter(
+                    or_(
+                        models.Event.bay_id == request.bay_id,
+                        models.Event.bay_id.ilike(f"%Bay {d}%"),
+                        models.Event.bay_id.ilike(f"%Bay {d_pad}%"),
+                        models.Event.bay_id.ilike(f"%bay-{d}%"),
+                        models.Event.bay_id.ilike(f"%bay-{d_pad}%")
+                    )
+                )
+            else:
+                events_query = events_query.filter(models.Event.bay_id == request.bay_id)
         if request.video_id:
             events_query = events_query.filter(models.Event.video_id.ilike(f"%{request.video_id}%"))
 
@@ -233,7 +247,13 @@ async def chat(
 
         if gemini_client.is_configured():
             try:
-                raw_answer = await gemini_client.generate_response(prompt, system_prompt=settings.SYSTEM_ASSISTANT_PROMPT)
+                raw_answer = await gemini_client.generate_response(
+                    prompt=prompt,
+                    system_prompt=settings.SYSTEM_ASSISTANT_PROMPT,
+                    operation_type="supervisor_qa",
+                    video_id=request.video_id or "global",
+                    endpoint="/api/assistant/chat"
+                )
                 if raw_answer and not raw_answer.startswith("Gemini API") and len(raw_answer.strip()) > 20:
                     answer_text = raw_answer
                     model_name = gemini_client.model or settings.GEMINI_MODEL

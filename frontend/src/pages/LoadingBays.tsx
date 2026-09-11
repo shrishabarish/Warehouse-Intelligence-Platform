@@ -28,6 +28,8 @@ import {
   WAREHOUSE_SCENARIOS, 
   type DockBay 
 } from '../utils/bayStore';
+import { uploadVideo } from '../api/videos';
+import { getLoadingBays } from '../api/facilities';
 import { formatEpochDate } from '../utils/formatters';
 
 export const LoadingBays: React.FC = () => {
@@ -44,9 +46,40 @@ export const LoadingBays: React.FC = () => {
   const quickFileInputRef = useRef<HTMLInputElement>(null);
   const [quickUploadBayId, setQuickUploadBayId] = useState<string | null>(null);
 
-  // Load from persistent bayStore on mount
+  const syncBaysWithBackend = async () => {
+    try {
+      const backendBays = await getLoadingBays();
+      if (backendBays && backendBays.length > 0) {
+        setBays(prev => {
+          const updated = [...prev];
+          backendBays.forEach(bb => {
+            const idx = updated.findIndex(u => 
+              u.id.toLowerCase().replace(/[^a-z0-9]/g, '') === bb.id.toLowerCase().replace(/[^a-z0-9]/g, '') ||
+              u.name.toLowerCase().includes(bb.name.toLowerCase()) ||
+              bb.name.toLowerCase().includes(u.name.toLowerCase())
+            );
+            if (idx !== -1) {
+              updated[idx] = {
+                ...updated[idx],
+                riskLevel: (bb.risk_level || updated[idx].riskLevel) as DockBay['riskLevel'],
+                primaryHazard: bb.latest_incident_behaviour || updated[idx].primaryHazard,
+              };
+            }
+          });
+          return updated;
+        });
+      }
+    } catch (e) {
+      console.warn('Live bays sync notice:', e);
+    }
+  };
+
+  // Load from persistent bayStore on mount and sync with live database
   useEffect(() => {
     setBays(getStoredBays());
+    syncBaysWithBackend();
+    const interval = setInterval(syncBaysWithBackend, 8000);
+    return () => clearInterval(interval);
   }, []);
 
   const activeFeedsCount = bays.filter((b) => b.status === 'ACTIVE_FEED' && Boolean(b.videoUrl)).length;
@@ -86,24 +119,52 @@ export const LoadingBays: React.FC = () => {
     }
   };
 
-  const handleQuickFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleQuickFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !quickUploadBayId) return;
 
+    const targetBayId = quickUploadBayId;
     const objectUrl = URL.createObjectURL(file);
-    const updated = assignVideoToBay(quickUploadBayId, {
+    const targetBay = bays.find((b) => b.id === targetBayId);
+
+    // Immediate preview state
+    const initial = assignVideoToBay(targetBayId, {
       videoUrl: objectUrl,
       videoTitle: file.name,
       isCustomUpload: true,
       riskLevel: 'High',
       riskScore: 78.5,
-      hazard: 'Custom Ingested CCTV Stream Under Real-Time YOLO11 Inference',
+      hazard: 'Uploading to Cloud Storage & Evaluating YOLO11 Inference...',
       incidentTimecode: 't=03.5s',
-      incidentEvent: 'Custom Video Material Handling Telemetry',
+      incidentEvent: 'Processing Video Stream...',
       duration: 60,
     });
-    setBays(updated);
+    setBays(initial);
     setQuickUploadBayId(null);
+
+    try {
+      const response = await uploadVideo(file, targetBay?.name || 'Loading Bay 01', 'CAM-01');
+      const riskLevel = (
+        response.risk_level === 'CRITICAL' ? 'Critical' :
+        response.risk_level === 'HIGH' ? 'High' :
+        response.risk_level === 'MEDIUM' ? 'Medium' : 'Low'
+      ) as DockBay['riskLevel'];
+
+      const finalUpdated = assignVideoToBay(targetBayId, {
+        videoUrl: response.video_url || objectUrl,
+        videoTitle: response.filename || file.name,
+        isCustomUpload: true,
+        riskLevel,
+        riskScore: response.risk_score || 75.0,
+        hazard: response.behaviors?.[0] || 'YOLO11 Material Handling Telemetry',
+        incidentTimecode: 't=03.2s',
+        incidentEvent: response.what_happened || 'Optical Detection Active',
+        duration: response.duration || 60,
+      });
+      setBays(finalUpdated);
+    } catch (err) {
+      console.warn('Direct bay upload warning:', err);
+    }
   };
 
   // Quick 1-click preset assignment directly on bay card

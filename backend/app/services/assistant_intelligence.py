@@ -187,14 +187,12 @@ class AssistantIntelligenceEngine:
     def _match_bay(q_lower: str, requested_bay: Optional[str] = None) -> Optional[str]:
         if requested_bay:
             return requested_bay
-        if "bay 1" in q_lower or "bay-1" in q_lower or "dock 1" in q_lower:
-            return "Loading Bay 1"
-        if "bay 2" in q_lower or "bay-2" in q_lower or "dock 2" in q_lower:
-            return "Loading Bay 2"
-        if "bay 3" in q_lower or "bay-3" in q_lower or "dock 3" in q_lower:
-            return "Loading Bay 3"
-        if "bay 4" in q_lower or "bay-4" in q_lower or "dock 4" in q_lower:
-            return "Loading Bay 4"
+        m = re.search(r"\b(?:loading\s*bay|bay|dock)\s*0?([1-9]\d*)\b", q_lower)
+        if m:
+            return f"Loading Bay {int(m.group(1)):02d}"
+        for d in range(1, 10):
+            if f"bay {d}" in q_lower or f"bay-0{d}" in q_lower or f"bay-{d}" in q_lower or f"dock {d}" in q_lower or f"dock 0{d}" in q_lower or f"bay {d:02d}" in q_lower:
+                return f"Loading Bay {d:02d}"
         return None
 
     @staticmethod
@@ -335,7 +333,21 @@ class AssistantIntelligenceEngine:
 
     @staticmethod
     def _handle_bay_specific(bay_name: str, facility_id: str, events: List[models.Event]) -> Tuple[str, str]:
-        bay_events = [e for e in events if e.bay_id and bay_name.lower() in e.bay_id.lower()]
+        bay_digits = re.findall(r"\d+", bay_name)
+        d_val = bay_digits[0] if bay_digits else ""
+        d_int = int(d_val) if d_val else -1
+
+        def is_bay_match(e_bay: Optional[str]) -> bool:
+            if not e_bay:
+                return False
+            if bay_name.lower() in e_bay.lower() or e_bay.lower() in bay_name.lower():
+                return True
+            e_digits = re.findall(r"\d+", e_bay)
+            if e_digits and d_int != -1 and int(e_digits[0]) == d_int:
+                return True
+            return False
+
+        bay_events = [e for e in events if is_bay_match(e.bay_id)]
         if not bay_events:
             bay_events = events[:2]
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   BookOpen, 
   CheckCircle2, 
@@ -180,7 +180,30 @@ export const BehaviourLibrary: React.FC = () => {
     });
   };
 
-  const filteredTaxonomy = TAXONOMY_DEFINITIONS.filter((item) => {
+  const dynamicTaxonomy: TaxonomyItem[] = useMemo(() => {
+    const existingNames = new Set(TAXONOMY_DEFINITIONS.map(t => t.name.toLowerCase()));
+    const discovered: TaxonomyItem[] = [];
+
+    allEvents.forEach(e => {
+      if (e.behaviour && !existingNames.has(e.behaviour.toLowerCase())) {
+        existingNames.add(e.behaviour.toLowerCase());
+        discovered.push({
+          id: `BEH-DYN-${discovered.length + 1}`,
+          category: 'Handling',
+          name: e.behaviour,
+          matchKeys: [e.behaviour.toLowerCase()],
+          riskLevel: (e.risk_level === 'Critical' ? 'Critical' : e.risk_level === 'High' ? 'High' : e.risk_level === 'Medium' ? 'Medium' : 'Low'),
+          aiObservedBad: e.description || e.reason || `Automated vision detection flagged ${e.behaviour}.`,
+          expectedGoodPractice: e.recommended_action || 'Follow warehouse standard handling protocols.',
+          whyItMatters: (e as any).potential_consequence || 'Improper handling poses material degradation and safety risks.'
+        });
+      }
+    });
+
+    return [...TAXONOMY_DEFINITIONS, ...discovered];
+  }, [allEvents]);
+
+  const filteredTaxonomy = dynamicTaxonomy.filter((item) => {
     const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
     const matchesSearch =
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

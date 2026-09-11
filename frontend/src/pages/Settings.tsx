@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Cpu, Sliders, ShieldCheck, CheckCircle2, RefreshCw, RotateCcw, Cloud, Key, Activity, AlertTriangle, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Settings as SettingsIcon, Cpu, Sliders, ShieldCheck, CheckCircle2, RefreshCw, RotateCcw, Cloud, Key, Activity, AlertTriangle, ToggleLeft, ToggleRight, Bot, Zap } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { apiClient } from '../api/client';
 import { API_ENDPOINTS } from '../api/endpoints';
@@ -7,6 +7,30 @@ import { useSettings } from '../hooks/useSettings';
 import { DEFAULT_SETTINGS } from '../types/settings';
 import { getSafetyRules, toggleSafetyRule, type SafetyRule } from '../api/safetyRules';
 import { DataProvenanceOverlay } from '../components/DataProvenanceOverlay';
+
+interface KeysConfigResponse {
+  gemini_configured: boolean;
+  gemini_api_key_masked: string;
+  gemini_model: string;
+  gemini_models_available: string[];
+  roboflow_configured: boolean;
+  roboflow_status: any;
+  model_engine: string;
+  cache_stats: {
+    total_cached_entries: number;
+    cache_hits: number;
+    cache_misses: number;
+    hit_ratio_percent: number;
+  };
+  metrics_summary: {
+    total_requests: number;
+    cache_hits: number;
+    api_calls_made: number;
+    calls_saved_by_cache: number;
+    cache_savings_percent: number;
+    quota_exhausted_count: number;
+  };
+}
 
 interface ModelStatusResponse {
   engine: 'LOCAL_YOLO11' | 'ROBOFLOW_HOSTED';
@@ -30,6 +54,11 @@ export const Settings: React.FC = () => {
   const [checkingHealth, setCheckingHealth] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string>('Settings updated successfully');
+
+  // Gemini AI State & Token Efficiency
+  const [keysConfig, setKeysConfig] = useState<KeysConfigResponse | null>(null);
+  const [geminiApiKey, setGeminiApiKey] = useState<string>('');
+  const [geminiModel, setGeminiModel] = useState<string>('gemini-3.5-flash');
 
   // Model Engine & Roboflow State
   const [modelStatus, setModelStatus] = useState<ModelStatusResponse | null>(null);
@@ -87,11 +116,19 @@ export const Settings: React.FC = () => {
   const fetchModelStatus = async () => {
     setLoadingModelStatus(true);
     try {
-      const statusData = await apiClient.get<ModelStatusResponse>(API_ENDPOINTS.MODEL_STATUS);
+      const [statusData, configData] = await Promise.all([
+        apiClient.get<ModelStatusResponse>(API_ENDPOINTS.MODEL_STATUS),
+        apiClient.get<KeysConfigResponse>(API_ENDPOINTS.CONFIG_KEYS).catch(() => null)
+      ]);
       setModelStatus(statusData);
       setModelEngine(statusData.engine || 'LOCAL_YOLO11');
       if (statusData.project_id) setRoboflowProjectId(statusData.project_id);
       if (statusData.model_version) setRoboflowModelVersion(statusData.model_version);
+
+      if (configData) {
+        setKeysConfig(configData);
+        if (configData.gemini_model) setGeminiModel(configData.gemini_model);
+      }
     } catch {
       // Fallback model status default
       setModelStatus({
@@ -135,22 +172,30 @@ export const Settings: React.FC = () => {
       enableAlerts,
     });
 
-    // Save model switch settings to backend API
+    // Save model switch settings and credentials to backend API
     try {
-      const res = await apiClient.post<{ status: string; config: ModelStatusResponse }>(
-        API_ENDPOINTS.MODEL_SWITCH,
-        {
-          engine: modelEngine,
-          api_key: roboflowApiKey,
-          project_id: roboflowProjectId,
-          model_version: roboflowModelVersion,
-        }
-      );
-      if (res && res.config) {
-        setModelStatus(res.config);
-      }
+      await Promise.all([
+        apiClient.post(API_ENDPOINTS.CONFIG_KEYS, {
+          gemini_api_key: geminiApiKey.trim() || undefined,
+          gemini_model: geminiModel,
+          roboflow_api_key: roboflowApiKey.trim() || undefined,
+          model_engine: modelEngine,
+        }),
+        apiClient.post<{ status: string; config: ModelStatusResponse }>(
+          API_ENDPOINTS.MODEL_SWITCH,
+          {
+            engine: modelEngine,
+            api_key: roboflowApiKey,
+            project_id: roboflowProjectId,
+            model_version: roboflowModelVersion,
+          }
+        ).then(res => {
+          if (res?.config) setModelStatus(res.config);
+        })
+      ]);
+      await fetchModelStatus();
     } catch (err) {
-      console.warn('[Settings] Failed to save model switch config:', err);
+      console.warn('[Settings] Failed to save config:', err);
     }
 
     setSavedMessage('Settings and Model Engine configuration updated successfully');
@@ -226,6 +271,71 @@ export const Settings: React.FC = () => {
               <p className="text-xs text-slate-500 font-medium">Storage Engine</p>
               <p className="text-sm font-semibold text-slate-900 mt-1">SQLite3 Local Database</p>
             </div>
+          </div>
+        </div>
+
+        {/* Google Gemini AI & Token-Efficiency Engine Panel */}
+        <div className="glass-panel p-6 space-y-5">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+              <Bot className="w-5 h-5 text-indigo-600" /> Google Gemini AI Operations Assistant & Optimization
+            </h2>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                {keysConfig?.gemini_configured ? 'Active (Ready)' : 'Not Configured'}
+              </span>
+              {keysConfig?.metrics_summary?.calls_saved_by_cache !== undefined && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-mono font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  <Zap className="w-3.5 h-3.5 text-amber-500" />
+                  Cache Savings: {keysConfig.metrics_summary.cache_savings_percent}% ({keysConfig.metrics_summary.calls_saved_by_cache} calls saved)
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center justify-between">
+                <span>Google AI Studio / Gemini API Key</span>
+                {keysConfig?.gemini_api_key_masked && (
+                  <span className="font-mono text-slate-500 text-[11px]">
+                    Active: <code className="bg-slate-100 px-1 py-0.5 rounded text-indigo-600 font-semibold">{keysConfig.gemini_api_key_masked}</code>
+                  </span>
+                )}
+              </label>
+              <input
+                type="password"
+                placeholder="Paste key to update (e.g. AIzaSy... or AQ....)"
+                value={geminiApiKey}
+                onChange={(e) => setGeminiApiKey(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-500 font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                Primary LLM Model
+              </label>
+              <select
+                value={geminiModel}
+                onChange={(e) => setGeminiModel(e.target.value)}
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:border-indigo-500 font-mono font-medium"
+              >
+                <option value="gemini-3.5-flash">gemini-3.5-flash (Recommended, Fast & Free Tier)</option>
+                <option value="gemini-3-flash-preview">gemini-3-flash-preview (Failover Backup)</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Ultra Low Latency)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 space-y-1">
+            <p className="font-semibold text-slate-800 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" /> Multi-Model Quota Resilience Active
+            </p>
+            <p className="text-slate-500 leading-relaxed">
+              If the primary model reaches Google daily free-tier request limits, the client automatically cascades through fallback models (<code className="text-indigo-600">gemini-3-flash-preview</code> &rarr; <code className="text-indigo-600">gemini-3.1-flash-lite</code>) and in-memory LRU cache to eliminate duplicate network requests.
+            </p>
           </div>
         </div>
 

@@ -22,8 +22,10 @@ import {
 } from 'lucide-react';
 import { formatTimestamp } from '../utils/formatters';
 import { DataProvenanceOverlay } from '../components/DataProvenanceOverlay';
+import { useAuth } from '../context/AuthContext';
 
 export const Dashboard: React.FC = () => {
+  const { user } = useAuth();
   const { analytics, error: analyticsError, refetch, lastUpdated } = useAnalytics(4000);
   const { events, loading: eventsLoading } = useEvents({ limit: 6 });
   const [bays, setBays] = useState<LoadingBay[]>([]);
@@ -125,7 +127,7 @@ export const Dashboard: React.FC = () => {
       )}
 
       {/* Hero Business Metric: DAMAGE PREVENTION INDEX */}
-      <DataProvenanceOverlay endpoint="GET /api/analytics/summary" entity="events" filter="facility_id=FAC-001">
+      <DataProvenanceOverlay endpoint="GET /api/analytics/summary" entity="events" filter={`facility_id=${user?.facility_id || 'FAC-001'}`}>
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
             <div>

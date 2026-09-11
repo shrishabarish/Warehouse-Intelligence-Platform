@@ -20,10 +20,12 @@ import {
   Maximize2
 } from 'lucide-react';
 import { getLoadingBays, type LoadingBay } from '../api/facilities';
+import { getVideos } from '../api/videos';
 import { apiClient } from '../api/client';
 import { useEvents } from '../hooks/useEvents';
 import { useRealtimeTelemetry } from '../hooks/useRealtimeTelemetry';
 import { generateTelemetryForVideo, getRiskAtTime, type VideoTelemetryPayload } from '../types/telemetry';
+import { assignVideoToBay } from '../utils/bayStore';
 import { motion } from 'framer-motion';
 import { useSearchParams } from 'react-router-dom';
 
@@ -39,7 +41,7 @@ export const LiveMonitoring: React.FC = () => {
   const [searchParams] = useSearchParams();
   const videoRef = useRef<HTMLVideoElement>(null);
   const { isConnected } = useRealtimeTelemetry();
-  const { events } = useEvents();
+  const { events, refetch: refetchEvents } = useEvents();
   const [bays, setBays] = useState<LoadingBay[]>([]);
 
   const [loading, setLoading] = useState<boolean>(true);
@@ -113,6 +115,22 @@ export const LiveMonitoring: React.FC = () => {
         60
       );
       handleVideoSelect(payload);
+    } else {
+      getVideos().then((vids) => {
+        if (vids && vids.length > 0) {
+          const latest = vids[0];
+          const filename = latest.filename || (latest.video_id.endsWith('.mp4') ? latest.video_id : `${latest.video_id}.mp4`);
+          const videoUrl = `/videos/${encodeURIComponent(filename)}`;
+          const payload = generateTelemetryForVideo(
+            filename,
+            18 * 1024 * 1024,
+            'Loading Bay 01',
+            videoUrl,
+            latest.duration || 60
+          );
+          handleVideoSelect(payload);
+        }
+      }).catch(() => {});
     }
   }, [searchParams]);
 
@@ -124,15 +142,21 @@ export const LiveMonitoring: React.FC = () => {
   const handleDurationChange = (nativeDuration: number) => {
     if (nativeDuration && nativeDuration > 0 && Math.abs(nativeDuration - videoDuration) > 1) {
       setVideoDuration(nativeDuration);
-      setVideoPayload((prev) =>
-        generateTelemetryForVideo(
+      setVideoPayload((prev) => {
+        if (prev.isCustomUpload || prev.what_happened || (prev.timelineData && prev.timelineData.length > 0)) {
+          return {
+            ...prev,
+            duration: nativeDuration
+          };
+        }
+        return generateTelemetryForVideo(
           prev.filename,
           prev.fileSizeBytes,
           prev.bay,
           prev.videoUrl,
           nativeDuration
-        )
-      );
+        );
+      });
     }
   };
 
@@ -143,6 +167,28 @@ export const LiveMonitoring: React.FC = () => {
     setDispatched(false);
     setFalsePositive(false);
     setVideoDuration(payload.duration || 60);
+
+    // Sync to DockBay store so dock bay cards reflect the new feed and risk score
+    try {
+      const bayId = payload.bay?.toLowerCase().includes('02') ? 'bay-02' :
+                    payload.bay?.toLowerCase().includes('03') ? 'bay-03' :
+                    payload.bay?.toLowerCase().includes('04') ? 'bay-04' : 'bay-01';
+      assignVideoToBay(bayId, {
+        videoUrl: payload.videoUrl,
+        videoTitle: payload.title || payload.filename,
+        isCustomUpload: Boolean(payload.isCustomUpload),
+        riskLevel: payload.riskLevel,
+        riskScore: payload.riskScore,
+        hazard: payload.behaviors[0] || 'Real-time Optical Kinematic Stream',
+        duration: payload.duration
+      });
+    } catch (e) {
+      console.warn('Bay store sync notice:', e);
+    }
+
+    // Refresh events from database
+    refetchEvents();
+
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
       videoRef.current.play().catch(() => {});
@@ -186,6 +232,8 @@ export const LiveMonitoring: React.FC = () => {
 
   const whatHappenedText = activeEventAtTime?.event 
     ? `At ${activeEventAtTime.time}s: ${activeEventAtTime.event} detected via kinematic tracking (R(t) = ${activeEventAtTime.frameRisk}%).`
+    : videoPayload.what_happened
+    ? videoPayload.what_happened
     : isDropping
     ? `Sudden vertical acceleration drop spike (>9.8 m/s²) recorded on carton item in ${videoPayload.bay}.`
     : isDragging
@@ -198,7 +246,9 @@ export const LiveMonitoring: React.FC = () => {
     ? `Heavy structural weight positioned atop lighter fragile parcels in ${videoPayload.bay}.`
     : `Continuous YOLO11 + ByteTrack optical surveillance active on ${videoPayload.bay}.`;
 
-  const whyItMattersText = isDropping
+  const whyItMattersText = videoPayload.why_it_matters
+    ? videoPayload.why_it_matters
+    : isDropping
     ? 'Freefall impact deceleration causes internal component fracturing, structural integrity failure, and concealed carton tearing.'
     : isDragging
     ? 'Floor abrasion compromises bottom box seals, risks moisture ingress, and leads to base carton puncture during transit.'
@@ -210,7 +260,9 @@ export const LiveMonitoring: React.FC = () => {
     ? 'Inverted load hierarchy causes bottom-layer box collapse, stack destabilization, and catastrophic dock tipping.'
     : 'Live behavioral telemetry enables proactive damage prevention and ensures compliance with standard operating procedures.';
 
-  const recommendedActionText = isDropping
+  const recommendedActionText = videoPayload.recommended_action
+    ? videoPayload.recommended_action
+    : isDropping
     ? 'Halt conveyor/unloading sequence, inspect package corners for hidden structural compromise, and enforce two-handed placement.'
     : isDragging
     ? 'Provide hydraulic pallet truck or team-lift assistance. Prohibit floor dragging across warehouse bays.'

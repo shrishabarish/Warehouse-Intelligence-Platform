@@ -57,9 +57,14 @@ class AppConfig:
         }
         return env_db_map.get(self.ENVIRONMENT, "sqlite:///./warehouse.db")
 
+    # Supabase Cloud Database & Storage Settings
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", os.getenv("SUPABASE_SERVICE_ROLE_KEY", os.getenv("SUPABASE_ANON_KEY", "")))
+    SUPABASE_STORAGE_BUCKET: str = os.getenv("SUPABASE_STORAGE_BUCKET", "videos")
+
     # Gemini AI Settings
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
     GEMINI_BASE_URL: str = os.getenv(
         "GEMINI_BASE_URL", 
         "https://generativelanguage.googleapis.com/v1beta/models"

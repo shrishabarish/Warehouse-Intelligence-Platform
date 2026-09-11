@@ -3,12 +3,15 @@ import { EventList } from '../components/EventList';
 import { DataProvenanceOverlay } from '../components/DataProvenanceOverlay';
 import { AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useAuth } from '../context/AuthContext';
 
 export const IncidentLog: React.FC = () => {
+  const { user } = useAuth();
+
   return (
     <DataProvenanceOverlay
       endpoint="/api/events"
-      facilityScope="FAC-001"
+      facilityScope={user?.facility_id || 'FAC-001'}
       entity="Event"
       filter="Status / Risk / Facility Filtered"
     >

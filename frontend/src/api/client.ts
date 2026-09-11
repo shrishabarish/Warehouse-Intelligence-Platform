@@ -227,6 +227,80 @@ export const apiClient = {
     }
   },
 
+  async upload<T>(endpoint: string, formData: FormData, options?: RequestOptions): Promise<T> {
+    const url = buildSafeUrl(endpoint);
+
+    if (options?.signal?.aborted) {
+      const abortErr = new Error('Request aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
+
+    const timeoutMs = options?.timeoutMs ?? 120000;
+    const timeoutController = new AbortController();
+    const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+
+    let effectiveSignal: AbortSignal;
+    if (typeof AbortSignal.any === 'function' && options?.signal) {
+      effectiveSignal = AbortSignal.any([timeoutController.signal, options.signal]);
+    } else if (options?.signal) {
+      const combined = new AbortController();
+      timeoutController.signal.addEventListener('abort', () => combined.abort(), { once: true });
+      options.signal.addEventListener('abort', () => combined.abort(), { once: true });
+      effectiveSignal = combined.signal;
+    } else {
+      effectiveSignal = timeoutController.signal;
+    }
+
+    try {
+      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('wms_auth_token') : null;
+      const headers: Record<string, string> = {
+        'Accept': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: effectiveSignal,
+      });
+
+      if (!res.ok) {
+        handleResponseError(res.status);
+        let errorData;
+        try {
+          errorData = await res.json();
+        } catch {
+          errorData = undefined;
+        }
+        throw new ApiError(
+          errorData?.detail || `Video upload failed with status ${res.status}`,
+          res.status,
+          errorData
+        );
+      }
+
+      return res.json() as Promise<T>;
+    } catch (err: any) {
+      if (options?.signal?.aborted || err.name === 'AbortError') {
+        if (!timeoutController.signal.aborted) {
+          const abortErr = new Error('Request aborted');
+          abortErr.name = 'AbortError';
+          throw abortErr;
+        }
+      }
+      if (timeoutController.signal.aborted) {
+        throw new ApiError(`Upload request timed out after ${Math.round(timeoutMs / 1000)} seconds`, 408);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+
   async put<T>(endpoint: string, body?: any, options?: RequestOptions): Promise<T> {
     const url = buildSafeUrl(endpoint);
 

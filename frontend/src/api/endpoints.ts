@@ -17,4 +17,6 @@ export const API_ENDPOINTS = {
   MODEL_EVALUATION: '/ml/metrics/evaluation',
   MODEL_STATUS: '/ml/model/status',
   MODEL_SWITCH: '/ml/model/switch',
+  CONFIG_KEYS: '/config/keys',
+  ASSISTANT_METRICS: '/assistant/metrics',
 } as const;

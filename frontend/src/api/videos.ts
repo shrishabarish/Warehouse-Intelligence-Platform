@@ -20,3 +20,21 @@ export async function getVideoById(videoId: string): Promise<VideoMetadata> {
   }
 }
 
+export async function uploadVideo(
+  file: File,
+  bayId: string = 'Loading Bay 01',
+  cameraId: string = 'CAM-01'
+): Promise<any> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('bay_id', bayId);
+  formData.append('camera_id', cameraId);
+
+  try {
+    return await apiClient.upload<any>('/videos/upload', formData);
+  } catch (error) {
+    console.warn('Backend API /videos/upload error:', error);
+    throw error;
+  }
+}
+

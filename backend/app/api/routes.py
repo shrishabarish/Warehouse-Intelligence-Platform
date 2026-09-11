@@ -443,9 +443,34 @@ async def chat_rag(
             model_used="ChromaDB RAG + Local Intelligence"
         )
 
-    answer = await gemini_client.generate_response(full_prompt, system_prompt=settings.SYSTEM_ASSISTANT_PROMPT)
+    answer = await gemini_client.generate_response(
+        prompt=full_prompt, 
+        system_prompt=settings.SYSTEM_ASSISTANT_PROMPT,
+        operation_type="rag_grounded_query",
+        video_id="global",
+        endpoint="/api/query"
+    )
     if not answer:
-        raise HTTPException(status_code=500, detail="Failed to generate RAG response from Gemini API")
+        lines = [
+            f"Based on ChromaDB RAG Vector Store & SQL Database records ({len(rag_matches)} vector hits):",
+            ""
+        ]
+        for m in rag_matches:
+            lines.append(f"• Vector Search Match: {m['text']}")
+        
+        lines.append("\nRecent Flagged Incidents in Database:")
+        for e in recent_events[:3]:
+            lines.append(
+                f"• [{e.risk_level} Risk - Score {e.risk_score:.1f}] {e.behaviour} in {e.bay_id or 'Bay 1'}. "
+                f"Description: {e.description}"
+            )
+            
+        return assistant_schema.ChatResponse(
+            question=query_text,
+            answer="\n".join(lines),
+            source_events=source_events,
+            model_used="ChromaDB RAG + Local Resilient Intelligence"
+        )
 
     return assistant_schema.ChatResponse(
         question=query_text,

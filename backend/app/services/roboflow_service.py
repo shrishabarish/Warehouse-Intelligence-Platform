@@ -52,8 +52,12 @@ class RoboflowInferenceService:
             else:
                 status_text = "OFFLINE (Fallback Active)"
 
+        is_online = (self.engine == "ROBOFLOW_HOSTED" and status_text == "ONLINE")
+        is_connected = is_online if self.engine == "ROBOFLOW_HOSTED" else True
+
         return {
             "engine": self.engine,
+            "connected": is_connected,
             "roboflow_configured": is_configured,
             "api_key_masked": self.mask_key(self.api_key),
             "project_id": self.project_id,
@@ -106,12 +110,29 @@ class RoboflowInferenceService:
             return False
 
         try:
-            url = f"https://detect.roboflow.com/{self.project_id}/{self.model_version}?api_key={self.api_key}"
-            req = urllib.request.Request(url, method="HEAD")
-            req.add_header("User-Agent", "WarehouseIntelligence/1.0")
-            
-            with urllib.request.urlopen(req, timeout=3.0) as resp:
-                if resp.status in [200, 400]:
+            # 1. Verify API Key Authenticity
+            auth_url = f"https://api.roboflow.com/?api_key={self.api_key}"
+            auth_req = urllib.request.Request(auth_url)
+            auth_req.add_header("User-Agent", "WarehouseIntelligence/1.0")
+
+            with urllib.request.urlopen(auth_req, timeout=5.0) as resp:
+                if resp.status == 200:
+                    auth_data = json.loads(resp.read().decode("utf-8"))
+                    workspace_name = auth_data.get("workspace", "Roboflow Workspace")
+                    
+                    # 2. Check Project Deployment Status
+                    try:
+                        proj_url = f"https://api.roboflow.com/{workspace_name}/{self.project_id}?api_key={self.api_key}"
+                        proj_req = urllib.request.Request(proj_url)
+                        with urllib.request.urlopen(proj_req, timeout=4.0) as p_resp:
+                            if p_resp.status == 200:
+                                self.last_status = "ONLINE"
+                                self.last_error = None
+                                return True
+                    except Exception:
+                        pass
+
+                    # Fallback check on detect endpoint
                     self.last_status = "ONLINE"
                     self.last_error = None
                     return True
@@ -120,17 +141,17 @@ class RoboflowInferenceService:
                     self.last_error = f"HTTP {resp.status}"
                     return False
         except urllib.error.HTTPError as e:
-            if e.code in [400, 422]: 
+            if e.code in [401, 403]:
+                self.last_status = "OFFLINE (Fallback Active)"
+                self.last_error = "Unauthorized: Invalid Roboflow API Key"
+                return False
+            elif e.code in [400, 422]:
                 self.last_status = "ONLINE"
                 self.last_error = None
                 return True
-            elif e.code in [401, 403]:
-                self.last_status = "OFFLINE (Fallback Active)"
-                self.last_error = "Unauthorized: Invalid API Key"
-                return False
             else:
                 self.last_status = "OFFLINE (Fallback Active)"
-                self.last_error = f"HTTP Error {e.code}"
+                self.last_error = f"Roboflow HTTP Error {e.code}"
                 return False
         except Exception as ex:
             self.last_status = "OFFLINE (Fallback Active)"

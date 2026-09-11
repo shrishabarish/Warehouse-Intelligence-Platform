@@ -47,6 +47,10 @@ backend/warehouse.db
 backend/data/*.db
 
 # Large media / datasets / model weights (preserving directory structures via .gitkeep)
+backend/storage/videos/*
+!backend/storage/videos/.gitkeep
+backend/storage/models/*
+!backend/storage/models/.gitkeep
 data/raw/*
 !data/raw/.gitkeep
 data/processed/*

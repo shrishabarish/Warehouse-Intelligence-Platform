@@ -50,6 +50,8 @@ from fastapi.responses import HTMLResponse, Response, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 from app.integrations.gemini_client import gemini_client
+from app.integrations.gemini_cache import gemini_cache
+from app.integrations.gemini_metrics import gemini_metrics
 from app.services.roboflow_service import roboflow_service
 
 class KeyUpdateRequest(BaseModel):
@@ -130,13 +132,41 @@ async def save_api_keys(payload: KeyUpdateRequest):
         "model_engine": settings.MODEL_ENGINE
     }
 
+@app.get("/api/config/keys", tags=["config"])
+async def get_api_keys_config():
+    gemini_configured = gemini_client.is_configured()
+    roboflow_configured = bool(roboflow_service.api_key and roboflow_service.api_key.strip())
+    rf_status = roboflow_service.get_status()
+    masked_gemini = f"****{settings.GEMINI_API_KEY[-4:]}" if len(settings.GEMINI_API_KEY) > 8 else ("(Configured)" if gemini_configured else "Not Configured")
+    
+    return {
+        "gemini_configured": gemini_configured,
+        "gemini_api_key_masked": masked_gemini,
+        "gemini_model": settings.GEMINI_MODEL,
+        "gemini_models_available": ["gemini-3.5-flash", "gemini-3-flash-preview", "gemini-3.1-flash-lite"],
+        "roboflow_configured": roboflow_configured,
+        "roboflow_status": rf_status,
+        "model_engine": settings.MODEL_ENGINE,
+        "cache_stats": gemini_cache.get_stats(),
+        "metrics_summary": gemini_metrics.get_summary()
+    }
+
+@app.get("/api/assistant/metrics", tags=["assistant"])
+async def get_assistant_metrics():
+    return {
+        "metrics": gemini_metrics.get_summary(),
+        "cache": gemini_cache.get_stats(),
+        "active_model": gemini_client.model,
+        "prompt_version": gemini_client.prompt_version
+    }
+
 # Root status page for localhost:8000
 @app.get("/", response_class=HTMLResponse, tags=["status"])
 async def root_status():
     gemini_configured = gemini_client.is_configured()
     roboflow_configured = bool(roboflow_service.api_key and roboflow_service.api_key.strip())
     rf_status = roboflow_service.get_status()
-    masked_gemini = f"••••••••{settings.GEMINI_API_KEY[-4:]}" if len(settings.GEMINI_API_KEY) > 8 else ("(Configured)" if gemini_configured else "Not Configured")
+    masked_gemini = f"****{settings.GEMINI_API_KEY[-4:]}" if len(settings.GEMINI_API_KEY) > 8 else ("(Configured)" if gemini_configured else "Not Configured")
     masked_roboflow = rf_status.get("api_key_masked") or ("Not Configured" if not roboflow_configured else "(Configured)")
 
     return f"""
@@ -448,7 +478,7 @@ async def root_status():
                         gemini_api_key: document.getElementById('geminiKey').value,
                         roboflow_api_key: document.getElementById('roboflowKey').value,
                         model_engine: document.getElementById('engineSelect').value,
-                        gemini_model: 'gemini-2.5-flash'
+                        gemini_model: '{settings.GEMINI_MODEL}'
                     }};
                     
                     const res = await fetch('/api/config/keys', {{
